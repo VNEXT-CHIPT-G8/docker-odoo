@@ -1,314 +1,335 @@
-# Quick install
+# Odoo 20 trên Docker
 
-Installing Odoo 20 with one command.
+Cài Odoo 20 bằng Docker chỉ với một lệnh. Một server có thể chạy nhiều instance Odoo song song, mỗi instance một thư mục và một cặp port riêng.
 
-(Supports multiple Odoo instances on one server)
+| Thành phần | Image | Ghi chú |
+|---|---|---|
+| Odoo | `odoo:20.0` | Image chính thức, Ubuntu noble, Python 3.12 |
+| PostgreSQL | `pgvector/pgvector:pg17` | PostgreSQL 17 có sẵn extension `vector` cho các tính năng AI. Odoo 20 cần PostgreSQL 16 trở lên |
 
-Install [docker](https://docs.docker.com/get-docker/) and [docker-compose](https://docs.docker.com/compose/install/) yourself, then run:
-``` bash
-sudo apt update && apt upgrade
-sudo apt install docker docker-compose -y
-```
-Upgrade docker-compose
-``` bash
-DOCKER_CONFIG=${DOCKER_CONFIG:-$HOME/.docker}
-mkdir -p $DOCKER_CONFIG/cli-plugins
-curl -SL https://github.com/docker/compose/releases/download/v2.14.2/docker-compose-linux-x86_64 -o $DOCKER_CONFIG/cli-plugins/docker-compose
+## Mục lục
 
-sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
-docker compose version
-```
+1. [Yêu cầu](#1-yêu-cầu)
+2. [Cài nhanh bằng một lệnh](#2-cài-nhanh-bằng-một-lệnh)
+3. [Cài thủ công](#3-cài-thủ-công)
+4. [Lần đầu sử dụng](#4-lần-đầu-sử-dụng)
+5. [Cấu trúc thư mục](#5-cấu-trúc-thư-mục)
+6. [Cấu hình](#6-cấu-hình)
+7. [Quản lý container](#7-quản-lý-container)
+8. [Addon: tự viết, Enterprise, bên thứ 3](#8-addon-tự-viết-enterprise-bên-thứ-3)
+9. [AI và pgvector](#9-ai-và-pgvector)
+10. [Chạy production sau Nginx](#10-chạy-production-sau-nginx)
+11. [Sao lưu và khôi phục](#11-sao-lưu-và-khôi-phục)
+12. [Nâng cấp từ bản cũ (Odoo 16, postgres 15)](#12-nâng-cấp-từ-bản-cũ-odoo-16-postgres-15)
+13. [Xử lý sự cố](#13-xử-lý-sự-cố)
 
+## 1. Yêu cầu
 
+- RAM tối thiểu 4 GB cho một instance (cấu hình mặc định chạy 5 worker), ổ trống khoảng 5 GB.
+- `git`, Docker và Docker Compose v2 (lệnh `docker compose`).
 
-Then
-``` bash
-curl -s https://raw.githubusercontent.com/VNEXT-CHIPT-G8/docker-odoo/main/run.sh | sudo bash -s odoo-one 10012 20012
-```
+**Ubuntu / Debian server**
 
-to set up first Odoo instance @ `localhost:10012` (default master password: `Masterpass`)
-
-and
-
-``` bash
-curl -s https://raw.githubusercontent.com/VNEXT-CHIPT-G8/docker-odoo/main/run.sh | sudo bash -s odoo-two 11012 21012
-```
-
-to set up another Odoo instance @ `localhost:11012` (default master password: `Masterpass`)
-
-Some arguments:
-* First argument (**odoo-one**): Odoo deploy folder
-* Second argument (**10012**): Odoo port
-* Third argument (**20012**): live chat port
-
-If `curl` is not found, install it:
-
-``` bash
-$ sudo apt-get install curl
-# or
-$ sudo yum install curl
+```bash
+sudo apt update && sudo apt install -y git curl
+curl -fsSL https://get.docker.com | sudo sh     # cài Docker + Compose plugin
+docker compose version                          # kiểm tra
 ```
 
-# Usage
+**Windows**: cài [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/), bật WSL 2 integration, rồi chạy mọi lệnh trong terminal Ubuntu (WSL). Đặt thư mục cài trong ổ của WSL (ví dụ `~/odoo-one`), không đặt trong `/mnt/c/...`, vì ở đó chậm và hay lỗi phân quyền.
 
-Start the container:
-``` sh
-docker-compose up
+**macOS**: cài [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/) hoặc OrbStack.
+
+## 2. Cài nhanh bằng một lệnh
+
+Linux / WSL:
+
+```bash
+curl -s https://raw.githubusercontent.com/VNEXT-CHIPT-G8/docker-odoo/20.0/run.sh | sudo bash -s odoo-one 10012 20012
 ```
 
-* Then open `localhost:10012` to access Odoo 20.0. If you want to start the server with a different port, change **10012** to another value in **docker-compose.yml**:
+macOS (không dùng `sudo`):
 
-```
-ports:
- - "10012:8069"
-```
-
-Run Odoo container in detached mode (be able to close terminal without stopping Odoo):
-
-```
-docker-compose up -d
+```bash
+curl -s https://raw.githubusercontent.com/VNEXT-CHIPT-G8/docker-odoo/20.0/run.sh | bash -s odoo-one 10012 20012
 ```
 
-**If you get the permission issue**, change the folder permission to make sure that the container is able to access the directory:
+Tham số:
 
-``` sh
-$ git clone https://github.com/VNEXT-CHIPT-G8/docker-odoo
-$ sudo chmod -R 777 addons
-$ sudo chmod -R 777 etc
-$ mkdir -p postgresql
-$ sudo chmod -R 777 postgresql
+| Vị trí | Ví dụ | Ý nghĩa |
+|---|---|---|
+| 1 | `odoo-one` | Thư mục cài đặt, phải chưa tồn tại |
+| 2 | `10012` | Port web Odoo (mặc định `10012`) |
+| 3 | `20012` | Port live chat / websocket (mặc định `20012`) |
+
+Script sẽ clone nhánh `20.0`, cấp quyền thư mục, tăng giới hạn inotify (chỉ trên Linux), đổi port trong `docker-compose.yml` rồi chạy `docker compose up -d`.
+
+Thêm instance thứ hai thì đổi tên thư mục và port:
+
+```bash
+curl -s https://raw.githubusercontent.com/VNEXT-CHIPT-G8/docker-odoo/20.0/run.sh | sudo bash -s odoo-two 11012 21012
 ```
 
-Increase maximum number of files watching from 8192 (default) to **524288**. In order to avoid error when we run multiple Odoo instances. This is an *optional step*. These commands are for Ubuntu user:
+Lần đầu phải tải khoảng 1–2 GB image nên mất vài phút.
 
-```
-$ if grep -qF "fs.inotify.max_user_watches" /etc/sysctl.conf; then echo $(grep -F "fs.inotify.max_user_watches" /etc/sysctl.conf); else echo "fs.inotify.max_user_watches = 524288" | sudo tee -a /etc/sysctl.conf; fi
-$ sudo sysctl -p    # apply new config immediately
-```
+## 3. Cài thủ công
 
-# Custom addons, Enterprise & third-party apps
-
-```
-addons/
-├── enterprise/        # Odoo Enterprise 20.0 modules (git-ignored, licensed)
-├── third-party/       # 3rd-party apps (Odoo Apps Store, OCA, vendors...)
-│   ├── some_module/   #   - flat: module folders directly here
-│   └── oca-web/       #   - or one sub-folder per git repo (cloned as-is)
-└── my_module/         # your custom addons (addons/ root, as before)
+```bash
+git clone -b 20.0 https://github.com/VNEXT-CHIPT-G8/docker-odoo odoo-one
+cd odoo-one
+mkdir -p postgresql
+sudo chmod -R 777 addons etc postgresql
+# đổi port nếu cần: sửa "10012:8069" và "20012:8072" trong docker-compose.yml
+docker compose up -d
 ```
 
-`etc/odoo.conf` already loads them in this order:
+## 4. Lần đầu sử dụng
+
+1. Mở `http://<ip-server>:10012` (máy cá nhân thì `http://localhost:10012`).
+2. Trang **tạo database** hiện ra:
+   - **Master Password**: `Masterpass` (là `admin_passwd` trong `etc/odoo.conf`; [đổi ngay](#6-cấu-hình) nếu chạy thật).
+   - Nhập tên database, email, mật khẩu admin, ngôn ngữ (Tiếng Việt), quốc gia.
+3. Đăng nhập bằng email và mật khẩu admin vừa tạo.
+
+Quản lý database (tạo, sao lưu, nhân bản, xoá): `http://<ip-server>:10012/web/database/manager`.
+
+## 5. Cấu trúc thư mục
+
+```
+odoo-one/
+├── docker-compose.yml     # khai báo 2 service: db, odoo
+├── addons/                # addon mount vào /mnt/extra-addons
+│   ├── enterprise/        #   Odoo Enterprise (không commit lên git)
+│   ├── third-party/       #   app bên thứ 3
+│   └── <addon tự viết>/
+├── etc/                   # mount vào /etc/odoo
+│   ├── odoo.conf          #   cấu hình Odoo
+│   ├── odoo.log           #   log Odoo
+│   ├── requirements.txt   #   thư viện Python cài thêm
+│   └── files/             #   data_dir: filestore (file đính kèm), sessions
+├── postgresql/            # dữ liệu PostgreSQL
+├── entrypoint.sh          # entrypoint tuỳ biến (cài requirements.txt)
+├── Dockerfile             # chỉ dùng khi muốn tự build image
+└── run.sh                 # script cài nhanh
+```
+
+Dữ liệu cần giữ khi sao lưu hoặc chuyển server: `postgresql/`, `etc/files/`, `etc/odoo.conf`, `addons/`.
+
+## 6. Cấu hình
+
+Sửa `etc/odoo.conf`, sau đó chạy `docker compose restart odoo`.
+
+| Option | Mặc định | Ghi chú |
+|---|---|---|
+| `admin_passwd` | `Masterpass` | Mật khẩu master để quản lý database. **Đổi khi chạy thật** |
+| `workers` | `5` | Số tiến trình xử lý request. Gợi ý: (số CPU × 2) + 1. Đặt `0` khi dev |
+| `max_cron_threads` | `2` | Số luồng chạy tác vụ định kỳ |
+| `limit_memory_soft` / `limit_memory_hard` | 2 GB / 2.5 GB | Giới hạn RAM mỗi worker |
+| `limit_time_cpu` / `limit_time_real` | 600 / 1200 giây | Thời gian tối đa mỗi request |
+| `proxy_mode` | `True` | Cần khi chạy sau Nginx |
+| `log_level` | `error` | Đổi sang `info` khi cần debug |
+| `logfile` | `/etc/odoo/odoo.log` | Bỏ dòng này nếu muốn xem log bằng `docker compose logs` |
+| `dev_mode` | tắt | Chỉ bật `dev_mode = reload` khi dev và đặt kèm `workers = 0` |
+
+Thông tin kết nối DB (`db`, user `odoo`, mật khẩu `odoo`) nằm trong `docker-compose.yml`. Muốn đổi mật khẩu DB thì sửa cả `POSTGRES_PASSWORD` của service `db` và `PASSWORD` của service `odoo` **trước lần chạy đầu tiên**.
+
+## 7. Quản lý container
+
+Chạy các lệnh trong thư mục cài đặt (`cd odoo-one`):
+
+```bash
+docker compose up -d              # chạy
+docker compose ps                 # trạng thái (phải là "Up")
+docker compose restart odoo       # restart Odoo sau khi sửa config / addon
+docker compose down               # dừng (dữ liệu vẫn giữ)
+docker compose logs -f db         # log PostgreSQL
+tail -f etc/odoo.log              # log Odoo
+```
+
+Cập nhật lên bản Odoo 20 mới nhất (bản build hằng ngày):
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Cài hoặc nâng cấp module bằng dòng lệnh (`exec` không đi qua entrypoint, nên phải truyền thông tin DB):
+
+```bash
+docker compose exec odoo odoo --db_host db --db_user odoo --db_password odoo \
+  -d <ten_db> -u <module> --stop-after-init --no-http      # -i để cài mới, -u để nâng cấp
+docker compose restart odoo
+```
+
+Tạo khung module mới:
+
+```bash
+docker compose exec odoo odoo scaffold my_module /mnt/extra-addons
+```
+
+## 8. Addon: tự viết, Enterprise, bên thứ 3
+
+`etc/odoo.conf` đã khai báo sẵn:
 
 ```
 addons_path = /mnt/extra-addons/enterprise,/mnt/extra-addons/third-party,/mnt/extra-addons/third-party/*,/mnt/extra-addons
 ```
 
-Empty folders are skipped with a warning, so the stack runs fine with Community only.
+Thư mục nào rỗng thì Odoo bỏ qua, nên chạy bản Community không cần làm gì thêm. Sau khi thêm addon: chạy `docker compose restart odoo`, bật chế độ developer, vào **Apps → Update Apps List** rồi cài.
 
-## Odoo Enterprise
+### Addon tự viết
 
-Requires a valid Odoo Enterprise subscription.
+Đặt thẳng trong `addons/`, ví dụ `addons/my_module/__manifest__.py`.
 
-1. Get the **20.0** enterprise source (same version as the `odoo:20.0` image):
-   * partners / customers with GitHub access: `git clone --depth=1 -b 20.0 git@github.com:odoo/enterprise.git /tmp/enterprise`
-   * or download the *Enterprise source (tgz)* from https://www.odoo.com/page/download (log in with the subscription account) and extract it.
-2. Copy the **module folders** (`web_enterprise`, `account_accountant`, ...) directly into `addons/enterprise/`:
-   ``` bash
+### Odoo Enterprise
+
+Cần có subscription Odoo Enterprise.
+
+1. Lấy source Enterprise **20.0**, cùng phiên bản với image:
+   - Có quyền GitHub (partner): `git clone --depth=1 -b 20.0 git@github.com:odoo/enterprise.git /tmp/enterprise`
+   - Hoặc tải bản *Enterprise source (tgz)* tại https://www.odoo.com/page/download (đăng nhập bằng tài khoản subscription), rồi giải nén.
+2. Copy các thư mục module vào `addons/enterprise/`. Phải có file `addons/enterprise/web_enterprise/__manifest__.py`, không lồng thêm một cấp:
+   ```bash
    cp -r /tmp/enterprise/* addons/enterprise/
    sudo chmod -R 777 addons
-   ```
-   `addons/enterprise/web_enterprise/__manifest__.py` must exist (no extra nesting level).
-3. Restart and update the app list, then install `web_enterprise` (new database: install any app, Enterprise UI is used automatically):
-   ``` bash
    docker compose restart odoo
    ```
-4. Register the subscription code in *Settings → General Settings → Odoo Enterprise Subscription*.
+3. Database mới: cài app bất kỳ là tự dùng giao diện Enterprise. Database Community đang có: vào Apps, bỏ bộ lọc "Apps", tìm `web_enterprise` rồi cài.
+4. Nhập mã subscription trong **Settings → General Settings**.
 
-Upgrading an existing Community database to Enterprise: install the `web_enterprise` module (*Apps → remove the "Apps" filter → search `web_enterprise`*).
+### App bên thứ 3
 
-## Third-party apps
+- File zip từ Odoo Apps Store: giải nén sao cho có `addons/third-party/<module>/__manifest__.py`.
+- Repo git chứa nhiều module (OCA, ...): clone nguyên repo vào một thư mục con, Odoo tự quét nhờ `third-party/*`:
+  ```bash
+  git clone --depth=1 -b 20.0 https://github.com/OCA/web.git addons/third-party/oca-web
+  ```
+- Kiểm tra `"version": "20.0.x.y.z"` trong `__manifest__.py`, và các module mà app phụ thuộc cũng phải có.
 
-1. Put the app into `addons/third-party/`:
-   * Odoo Apps Store zip → extract so that `addons/third-party/<module>/__manifest__.py` exists.
-   * Git repo with many modules (e.g. OCA) → clone the whole repo as a sub-folder, it is picked up by `third-party/*`:
-     ``` bash
-     git clone --depth=1 -b 20.0 https://github.com/OCA/web.git addons/third-party/oca-web
-     ```
-2. Make sure the app version is **20.0** (`"version": "20.0.x.y.z"` in `__manifest__.py`) and its dependencies (other modules) are also present.
-3. Python dependencies (listed in `external_dependencies` of `__manifest__.py`): add them to `etc/requirements.txt` and uncomment this line in `docker-compose.yml` so they are installed at startup:
-   ```
+### Thư viện Python cài thêm
+
+Nếu addon khai báo `external_dependencies` (python):
+
+1. Thêm tên thư viện vào `etc/requirements.txt`.
+2. Bỏ comment dòng sau trong `docker-compose.yml`:
+   ```yaml
    - ./entrypoint.sh:/entrypoint.sh
    ```
-4. Restart, then *Settings → Activate developer mode → Apps → Update Apps List* and install:
-   ``` bash
-   docker compose restart odoo
-   # or install / upgrade from the command line
-   docker compose exec odoo odoo --db_host db --db_user odoo --db_password odoo -d <db_name> -i <module_name> --stop-after-init --no-http
-   docker compose restart odoo
-   ```
+3. `docker compose up -d`. Thư viện được cài mỗi lần container khởi động (cần internet). `entrypoint.sh` đã dùng `pip --break-system-packages` vì image chạy Ubuntu noble (PEP 668).
 
-Add an extra folder (e.g. another vendor) by appending its container path to `addons_path` in `etc/odoo.conf`.
+## 9. AI và pgvector
 
-# Odoo configuration & log
+Image `pgvector/pgvector:pg17` có sẵn extension `vector` mà các tính năng AI của Odoo cần. Kiểm tra:
 
-* To change Odoo configuration, edit file: **etc/odoo.conf**.
-* Log file: **etc/odoo-server.log**
-* Default database password (**admin_passwd**) is `Masterpass`, please change it @ [etc/odoo.conf#L55](/etc/odoo.conf#L55)
-
-# Odoo container management
-
-**Run Odoo**:
-
-``` bash
-docker-compose up -d
+```bash
+docker compose exec db psql -U odoo -d postgres -c "SELECT name, default_version FROM pg_available_extensions WHERE name = 'vector';"
 ```
 
-**Restart Odoo**:
+User `odoo` là superuser nên Odoo tự chạy `CREATE EXTENSION vector` khi cài module AI. Muốn bật tay cho một database:
 
-``` bash
-docker-compose restart
+```bash
+docker compose exec db psql -U odoo -d <ten_db> -c "CREATE EXTENSION IF NOT EXISTS vector;"
 ```
 
-**Stop Odoo**:
+## 10. Chạy production sau Nginx
 
-``` bash
-docker-compose down
-```
-**Upgrade pip and install lib paramiko**:
-``` bash
+1. Trong `etc/odoo.conf`: đổi `admin_passwd`, giữ `proxy_mode = True`. Nếu một instance chạy nhiều domain thì bật `dbfilter = ^%d$`. Muốn ẩn trang quản lý database thì đặt `list_db = False`.
+2. Từ Odoo 16, live chat và thông báo realtime đi qua **websocket** `/websocket` (đường dẫn `/longpolling/` cũ không còn). Request websocket phải được chuyển sang port live chat (`20012`, tức `gevent_port` 8072 trong container):
 
-pip install --upgrade pip
-
-#install setuptools.
-
-pip install setuptools==39.1.0
-
-#install pyparser.
-
-pip install pyparser==1.0
-pip install pyparsing==2.1.0
-
-#install cffi.
-
-pip install cffi==1.11.5
-
-#install cryptography.
-
-pip install cryptography==2.2.2
-pip install paramiko
-
-```
-
-
-
-**Docker commit**:
-
-``` bash
-docker commit [OPTIONS] CONTAINER [REPOSITORY[:TAG]]
-```
-**Docker push**:
-
-``` bash
-docker push [OPTIONS] NAME[:TAG]
-
-docker docker push thaichikma/image
-```
-**Docker save**:
-
-``` bash
-docker save [OPTIONS] IMAGE [IMAGE...]
-
-docker save image > image.zip
-```
-**Docker Load**:
-
-``` bash
-docker load [OPTIONS]
-
-docker load < image.zip
-```
-
-More info: https://docs.docker.com/engine/reference/commandline/inspect/
-# Examples:
-$ **docker ps**
-
-``` bash
-CONTAINER ID        IMAGE               COMMAND             CREATED             STATUS              PORTS              NAMES
-c3f279d17e0a        ubuntu:12.04        /bin/bash           7 days ago          Up 25 hours                            desperate_dubinsky
-197387f1b436        ubuntu:12.04        /bin/bash           7 days ago          Up 25 hours                            focused_hamilton
-```
-**docker commit c3f279d17e0a  svendowideit/testimage:version3**
-``` bas
-f5283438590d
-```
-$ **docker images**
-
-``` bas
-REPOSITORY                        TAG                 ID                  CREATED             SIZE
-svendowideit/testimage            version3            f5283438590d        16 seconds ago      335.7 MB
-```
-
-# Live chat
-
-In [docker-compose.yml](docker-compose.yml), we exposed port **20012** (container port 8072, `gevent_port`) for live-chat / websocket on host.
-
-Since Odoo 16+, live chat & bus use **websocket** at `/websocket` (the old `/longpolling/` route is gone). Configuring **nginx** (in production, with `workers > 0`):
-
-``` conf
+```nginx
 map $http_upgrade $connection_upgrade {
     default upgrade;
     ''      close;
 }
 
+upstream odoo_one      { server 127.0.0.1:10012; }
+upstream odoo_one_chat { server 127.0.0.1:20012; }
+
 server {
-    #...
+    listen 80;
+    server_name erp.example.com;
+
+    client_max_body_size 200m;
+    proxy_read_timeout 720s;
+    proxy_connect_timeout 720s;
+    proxy_send_timeout 720s;
+
+    proxy_set_header X-Forwarded-Host  $http_host;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Real-IP         $remote_addr;
+
     location /websocket {
-        proxy_pass http://127.0.0.1:20012;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_pass http://odoo_one_chat;
+        proxy_set_header Upgrade    $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
-        proxy_set_header X-Forwarded-Host $http_host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Real-IP $remote_addr;
     }
-    #...
+
+    location / {
+        proxy_pass http://odoo_one;
+        proxy_redirect off;
+    }
+
+    gzip on;
+    gzip_types text/css text/plain application/json application/javascript;
 }
 ```
-# **Docker Portainer**
-* Install
-``` bas
-docker run -d -p 8000:8000 -p 9443:9443 --name portainer --restart=always -v /var/run/docker.sock:/var/run/docker.sock -v portainer_data:/data portainer/portainer-ce:latest
+
+Cài HTTPS: `sudo certbot --nginx -d erp.example.com`.
+
+Khi đã đi qua Nginx thì không cần mở port 10012/20012 ra internet. Có thể đổi trong `docker-compose.yml` thành `"127.0.0.1:10012:8069"` và `"127.0.0.1:20012:8072"`.
+
+## 11. Sao lưu và khôi phục
+
+**Cách 1, qua giao diện web**: `/web/database/manager` → **Backup** (chọn định dạng *zip* để lấy cả file đính kèm) và **Restore**. Cách này tiện cho database nhỏ.
+
+**Cách 2, bằng dòng lệnh** (nên dùng với database lớn):
+
+```bash
+DB=ten_db
+# sao lưu: database + filestore
+docker compose exec -T db pg_dump -U odoo -Fc "$DB" > "$DB.dump"
+tar czf "$DB-filestore.tgz" -C etc/files/filestore "$DB"
+
+# khôi phục
+docker compose exec -T db createdb -U odoo "$DB"
+docker compose exec -T db pg_restore -U odoo -d "$DB" --no-owner < "$DB.dump"
+mkdir -p etc/files/filestore && tar xzf "$DB-filestore.tgz" -C etc/files/filestore
+docker compose restart odoo
 ```
-# docker-compose.yml
 
-* odoo:20.0 (Ubuntu noble, Python 3.12)
-* pgvector/pgvector:pg17 (PostgreSQL 17 + `vector` extension; Odoo 20 requires PostgreSQL >= 16, and the **AI** apps need pgvector for embeddings)
+Thư mục `etc/backups/` dành cho module sao lưu tự động (ví dụ `auto_backup`, cần `pysftp` trong `etc/requirements.txt`).
 
-Check pgvector is available:
+## 12. Nâng cấp từ bản cũ (Odoo 16, postgres 15)
 
-``` bash
-docker compose exec db psql -U odoo -d postgres -c "SELECT name, default_version FROM pg_available_extensions WHERE name = 'vector';"
-```
+- PostgreSQL 17 **không đọc được** thư mục `postgresql/` do postgres 15 tạo. Phải dump bằng stack cũ rồi restore sang stack mới:
 
-The `odoo` DB user is a superuser, so Odoo can run `CREATE EXTENSION vector` itself when the AI module is installed. To enable it manually on a database: `CREATE EXTENSION IF NOT EXISTS vector;`
-
-# Upgrading from an older version of this repo (Odoo 16 / postgres:15)
-
-> Restore steps below work the same with the `pgvector/pgvector:pg17` image.
-
-* The `./postgresql` data folder created by postgres:15 **cannot** be opened by PostgreSQL 17. Dump it first with the old stack, then restore into the new one:
-
-``` bash
-# with the OLD stack still running (postgres:15)
-docker compose exec db pg_dumpall -U odoo > backup.sql
+```bash
+# ở thư mục cũ, stack cũ (postgres:15) vẫn đang chạy
+docker compose exec -T db pg_dumpall -U odoo > all.sql
 docker compose down
-mv postgresql postgresql-pg15 && mkdir postgresql && sudo chmod -R 777 postgresql
-# switch to this version, then
+mv postgresql postgresql-pg15 && mkdir postgresql && sudo chmod 777 postgresql
+# thay docker-compose.yml, entrypoint.sh, etc/odoo.conf bằng bản ở nhánh 20.0, sau đó:
 docker compose up -d db
-cat backup.sql | docker compose exec -T db psql -U odoo -d postgres
+docker compose exec -T db psql -U odoo -d postgres < all.sql
 docker compose up -d
 ```
 
-* An Odoo 16 database is **not** usable directly by Odoo 20: it must be migrated (Odoo upgrade service or OpenUpgrade). Custom addons in `addons/` must be ported to Odoo 20.
-* Extra Python packages in `etc/requirements.txt` are installed with `pip --break-system-packages` (PEP 668 on Ubuntu noble) when `entrypoint.sh` is mounted.
+- Database Odoo 16 **không chạy thẳng** trên Odoo 20. Phải migrate qua [Odoo Upgrade](https://upgrade.odoo.com) (Enterprise) hoặc [OpenUpgrade](https://github.com/OCA/OpenUpgrade) (Community). Addon tự viết và app bên thứ 3 cũng phải có bản cho 20.0.
 
+## 13. Xử lý sự cố
+
+Luôn bắt đầu bằng `docker compose ps` và `tail -100 etc/odoo.log`.
+
+| Hiện tượng | Nguyên nhân và cách xử lý |
+|---|---|
+| `Running as user 'root' is a security risk.` | Chỉ là cảnh báo, vì container chạy bằng `user: root` để cài được thư viện Python. Odoo vẫn chạy bình thường |
+| `This process is multi-threaded, use of fork() may lead to deadlocks` | Do `dev_mode = reload` đang bật cùng `workers > 0`. Tắt `dev_mode` (mặc định đã tắt) hoặc đặt `workers = 0` |
+| `docker compose logs` không thấy log Odoo | Log được ghi vào `etc/odoo.log`. Xem bằng `tail -f etc/odoo.log`, hoặc bỏ dòng `logfile` trong `odoo.conf` |
+| Container `odoo` ở trạng thái `Restarting` | Xem lỗi trong `etc/odoo.log`. Hay gặp nhất: sai cú pháp `odoo.conf`, addon lỗi, thiếu thư viện Python |
+| Log db báo `database files are incompatible with server` | Thư mục `postgresql/` được tạo bởi PostgreSQL bản khác. Xem [mục 12](#12-nâng-cấp-từ-bản-cũ-odoo-16-postgres-15) |
+| `Permission denied` trên `etc/` hoặc `addons/` | `sudo chmod -R 777 addons etc postgresql` |
+| `port is already allocated` | Port đã có chương trình khác dùng. Đổi port trong `docker-compose.yml`, hoặc tìm chương trình đó bằng `sudo lsof -i :10012` |
+| Live chat hoặc thông báo không cập nhật realtime | Nginx chưa chuyển `/websocket` sang port live chat. Xem [mục 10](#10-chạy-production-sau-nginx) |
+| Lỗi inotify `max_user_watches` khi chạy nhiều instance | `echo fs.inotify.max_user_watches=524288 \| sudo tee -a /etc/sysctl.conf && sudo sysctl -p` |
+| `run.sh`: `Folder 'odoo-one' already exists` | Đặt tên thư mục khác, hoặc xoá thư mục cũ nếu không còn dùng (**sẽ mất dữ liệu** trong đó) |

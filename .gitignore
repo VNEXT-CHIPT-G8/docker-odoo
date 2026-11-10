@@ -1,9 +1,13 @@
-etc/odoo-server.log
-etc/addons
-etc/filestore
-etc/sessions
-
+# runtime data created by the containers
+postgresql/
+etc/odoo.log
+etc/files/
+etc/backups/*
+!etc/backups/readme.md
 
 # Odoo Enterprise source is licensed: never commit it
 addons/enterprise/*
 !addons/enterprise/.gitkeep
+
+# python cache
+__pycache__/
