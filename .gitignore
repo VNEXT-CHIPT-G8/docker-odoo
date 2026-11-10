@@ -3,3 +3,7 @@ etc/addons
 etc/filestore
 etc/sessions
 
+
+# Odoo Enterprise source is licensed: never commit it
+addons/enterprise/*
+!addons/enterprise/.gitkeep

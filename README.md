@@ -1,6 +1,6 @@
 # Quick install
 
-Installing Odoo 16 with one command.
+Installing Odoo 20 with one command.
 
 (Supports multiple Odoo instances on one server)
 
@@ -23,7 +23,7 @@ docker compose version
 
 Then
 ``` bash
-curl -s https://raw.githubusercontent.com/thaichikma/docker-odoo/16.0/run.sh | sudo bash -s odoo-one 10012 20012
+curl -s https://raw.githubusercontent.com/VNEXT-CHIPT-G8/docker-odoo/main/run.sh | sudo bash -s odoo-one 10012 20012
 ```
 
 to set up first Odoo instance @ `localhost:10012` (default master password: `Masterpass`)
@@ -31,7 +31,7 @@ to set up first Odoo instance @ `localhost:10012` (default master password: `Mas
 and
 
 ``` bash
-curl -s https://raw.githubusercontent.com/thaichikma/docker-odoo/16.0/run.sh | sudo bash -s odoo-two 11012 21012
+curl -s https://raw.githubusercontent.com/VNEXT-CHIPT-G8/docker-odoo/main/run.sh | sudo bash -s odoo-two 11012 21012
 ```
 
 to set up another Odoo instance @ `localhost:11012` (default master password: `Masterpass`)
@@ -56,7 +56,7 @@ Start the container:
 docker-compose up
 ```
 
-* Then open `localhost:10012` to access Odoo 12.0. If you want to start the server with a different port, change **10012** to another value in **docker-compose.yml**:
+* Then open `localhost:10012` to access Odoo 20.0. If you want to start the server with a different port, change **10012** to another value in **docker-compose.yml**:
 
 ```
 ports:
@@ -72,7 +72,7 @@ docker-compose up -d
 **If you get the permission issue**, change the folder permission to make sure that the container is able to access the directory:
 
 ``` sh
-$ git clone https://github.com/thaichikma/docker-odoo/$version
+$ git clone https://github.com/VNEXT-CHIPT-G8/docker-odoo
 $ sudo chmod -R 777 addons
 $ sudo chmod -R 777 etc
 $ mkdir -p postgresql
@@ -86,9 +86,68 @@ $ if grep -qF "fs.inotify.max_user_watches" /etc/sysctl.conf; then echo $(grep -
 $ sudo sysctl -p    # apply new config immediately
 ```
 
-# Custom addons
+# Custom addons, Enterprise & third-party apps
 
-The **addons/** folder contains custom addons. Just put your custom addons if you have any.
+```
+addons/
+├── enterprise/        # Odoo Enterprise 20.0 modules (git-ignored, licensed)
+├── third-party/       # 3rd-party apps (Odoo Apps Store, OCA, vendors...)
+│   ├── some_module/   #   - flat: module folders directly here
+│   └── oca-web/       #   - or one sub-folder per git repo (cloned as-is)
+└── my_module/         # your custom addons (addons/ root, as before)
+```
+
+`etc/odoo.conf` already loads them in this order:
+
+```
+addons_path = /mnt/extra-addons/enterprise,/mnt/extra-addons/third-party,/mnt/extra-addons/third-party/*,/mnt/extra-addons
+```
+
+Empty folders are skipped with a warning, so the stack runs fine with Community only.
+
+## Odoo Enterprise
+
+Requires a valid Odoo Enterprise subscription.
+
+1. Get the **20.0** enterprise source (same version as the `odoo:20.0` image):
+   * partners / customers with GitHub access: `git clone --depth=1 -b 20.0 git@github.com:odoo/enterprise.git /tmp/enterprise`
+   * or download the *Enterprise source (tgz)* from https://www.odoo.com/page/download (log in with the subscription account) and extract it.
+2. Copy the **module folders** (`web_enterprise`, `account_accountant`, ...) directly into `addons/enterprise/`:
+   ``` bash
+   cp -r /tmp/enterprise/* addons/enterprise/
+   sudo chmod -R 777 addons
+   ```
+   `addons/enterprise/web_enterprise/__manifest__.py` must exist (no extra nesting level).
+3. Restart and update the app list, then install `web_enterprise` (new database: install any app, Enterprise UI is used automatically):
+   ``` bash
+   docker compose restart odoo
+   ```
+4. Register the subscription code in *Settings → General Settings → Odoo Enterprise Subscription*.
+
+Upgrading an existing Community database to Enterprise: install the `web_enterprise` module (*Apps → remove the "Apps" filter → search `web_enterprise`*).
+
+## Third-party apps
+
+1. Put the app into `addons/third-party/`:
+   * Odoo Apps Store zip → extract so that `addons/third-party/<module>/__manifest__.py` exists.
+   * Git repo with many modules (e.g. OCA) → clone the whole repo as a sub-folder, it is picked up by `third-party/*`:
+     ``` bash
+     git clone --depth=1 -b 20.0 https://github.com/OCA/web.git addons/third-party/oca-web
+     ```
+2. Make sure the app version is **20.0** (`"version": "20.0.x.y.z"` in `__manifest__.py`) and its dependencies (other modules) are also present.
+3. Python dependencies (listed in `external_dependencies` of `__manifest__.py`): add them to `etc/requirements.txt` and uncomment this line in `docker-compose.yml` so they are installed at startup:
+   ```
+   - ./entrypoint.sh:/entrypoint.sh
+   ```
+4. Restart, then *Settings → Activate developer mode → Apps → Update Apps List* and install:
+   ``` bash
+   docker compose restart odoo
+   # or install / upgrade from the command line
+   docker compose exec odoo odoo --db_host db --db_user odoo --db_password odoo -d <db_name> -i <module_name> --stop-after-init --no-http
+   docker compose restart odoo
+   ```
+
+Add an extra folder (e.g. another vendor) by appending its container path to `addons_path` in `etc/odoo.conf`.
 
 # Odoo configuration & log
 
@@ -191,20 +250,29 @@ svendowideit/testimage            version3            f5283438590d        16 sec
 
 # Live chat
 
-In [docker-compose.yml#L21](docker-compose.yml#L21), we exposed port **20012** for live-chat on host.
+In [docker-compose.yml](docker-compose.yml), we exposed port **20012** (container port 8072, `gevent_port`) for live-chat / websocket on host.
 
-Configuring **nginx** to activate live chat feature (in production):
+Since Odoo 16+, live chat & bus use **websocket** at `/websocket` (the old `/longpolling/` route is gone). Configuring **nginx** (in production, with `workers > 0`):
 
 ``` conf
-#...
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 server {
     #...
-    location /longpolling/ {
-        proxy_pass http://0.0.0.0:20012/longpolling/;
+    location /websocket {
+        proxy_pass http://127.0.0.1:20012;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Real-IP $remote_addr;
     }
     #...
 }
-#...
 ```
 # **Docker Portainer**
 * Install
@@ -213,6 +281,34 @@ docker run -d -p 8000:8000 -p 9443:9443 --name portainer --restart=always -v /va
 ```
 # docker-compose.yml
 
-* odoo:16.0
-* postgres:15
+* odoo:20.0 (Ubuntu noble, Python 3.12)
+* pgvector/pgvector:pg17 (PostgreSQL 17 + `vector` extension; Odoo 20 requires PostgreSQL >= 16, and the **AI** apps need pgvector for embeddings)
+
+Check pgvector is available:
+
+``` bash
+docker compose exec db psql -U odoo -d postgres -c "SELECT name, default_version FROM pg_available_extensions WHERE name = 'vector';"
+```
+
+The `odoo` DB user is a superuser, so Odoo can run `CREATE EXTENSION vector` itself when the AI module is installed. To enable it manually on a database: `CREATE EXTENSION IF NOT EXISTS vector;`
+
+# Upgrading from an older version of this repo (Odoo 16 / postgres:15)
+
+> Restore steps below work the same with the `pgvector/pgvector:pg17` image.
+
+* The `./postgresql` data folder created by postgres:15 **cannot** be opened by PostgreSQL 17. Dump it first with the old stack, then restore into the new one:
+
+``` bash
+# with the OLD stack still running (postgres:15)
+docker compose exec db pg_dumpall -U odoo > backup.sql
+docker compose down
+mv postgresql postgresql-pg15 && mkdir postgresql && sudo chmod -R 777 postgresql
+# switch to this version, then
+docker compose up -d db
+cat backup.sql | docker compose exec -T db psql -U odoo -d postgres
+docker compose up -d
+```
+
+* An Odoo 16 database is **not** usable directly by Odoo 20: it must be migrated (Odoo upgrade service or OpenUpgrade). Custom addons in `addons/` must be ported to Odoo 20.
+* Extra Python packages in `etc/requirements.txt` are installed with `pip --break-system-packages` (PEP 668 on Ubuntu noble) when `entrypoint.sh` is mounted.
 

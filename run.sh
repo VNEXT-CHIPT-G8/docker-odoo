@@ -3,7 +3,7 @@ DESTINATION=$1
 PORT=$2
 CHAT=$3
 # clone Odoo directory
-git clone --depth=1 https://github.com/thaichikma/docker-odoo -b 16.0 $DESTINATION
+git clone --depth=1 https://github.com/VNEXT-CHIPT-G8/docker-odoo -b main $DESTINATION
 rm -rf $DESTINATION/.git
 # set permission
 mkdir -p $DESTINATION/postgresql
@@ -13,7 +13,11 @@ if grep -qF "fs.inotify.max_user_watches" /etc/sysctl.conf; then echo $(grep -F 
 sudo sysctl -p
 sed -i 's/10012/'$PORT'/g' $DESTINATION/docker-compose.yml
 sed -i 's/20012/'$CHAT'/g' $DESTINATION/docker-compose.yml
-# run Odoo
-docker-compose -f $DESTINATION/docker-compose.yml up -d
+# run Odoo (prefer Compose v2 plugin, fall back to legacy docker-compose)
+if docker compose version >/dev/null 2>&1; then
+    docker compose -f $DESTINATION/docker-compose.yml up -d
+else
+    docker-compose -f $DESTINATION/docker-compose.yml up -d
+fi
 
-echo 'Started Odoo @ http://localhost:'$PORT' | Live chat port: '$CHAT
+echo 'Started Odoo 20 @ http://localhost:'$PORT' | Live chat port: '$CHAT

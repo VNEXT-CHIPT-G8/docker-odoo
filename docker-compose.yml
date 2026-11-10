@@ -1,7 +1,8 @@
-version: '2'
 services:
   db:
-    image: postgres:15
+    # Odoo 20 requires PostgreSQL >= 16
+    # pgvector image (= postgres:17 + vector extension) is required by Odoo AI features (embeddings / RAG)
+    image: pgvector/pgvector:pg17
     user: root
     environment:
       - POSTGRES_PASSWORD=odoo
@@ -11,14 +12,14 @@ services:
     volumes:
       - ./postgresql:/var/lib/postgresql/data
 
-  odoo14:
-    image: odoo:16.0
+  odoo:
+    image: odoo:20.0
     user: root
     depends_on:
       - db
     ports:
       - "10012:8069"
-      - "20012:8072" # live chat
+      - "20012:8072" # live chat / websocket (gevent)
     tty: true
     command: --
 #    command: odoo scaffold /mnt/extra-addons/test_module
